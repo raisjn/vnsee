@@ -1,13 +1,12 @@
 #include "options.hpp"
 #include "app/client.hpp"
 #include "config.hpp"
+#include "network.hpp"
 #include "rmioc/buttons.hpp"
 #include "rmioc/pen.hpp"
 #include "rmioc/screen.hpp"
 #include "rmioc/touch.hpp"
-#include <algorithm>
 #include <cstdlib>
-#include <cstring>
 #include <iostream>
 #include <iterator>
 #include <map>
@@ -27,8 +26,8 @@ auto help(const char* name) -> void
 {
     std::cout << "Usage: " << name << " [IP [PORT]] [OPTION...]\n"
 "Connect to the VNC server at IP:PORT.\n\n"
-"Only when launching " PROJECT_NAME " from a SSH session is the IP optional,\n"
-"in which case the client’s IP address is taken by default.\n"
+"If " PROJECT_NAME " is launched without a specific IP, it will scan\n"
+"for VNC servers running on the default port in the local USB network.\n"
 "By default, PORT is 5900.\n\n"
 "Available options:\n"
 "  -h, --help           Show this help message and exit.\n"
@@ -89,33 +88,31 @@ auto main(int argc, const char* argv[]) -> int
     }
     else
     {
-        // Guess the server IP from the SSH client IP
-        const char* ssh_conn = getenv("SSH_CONNECTION");
+        // No IP provided, search for a VNC server on the local network
+        auto local_ips = network::get_usb_hosts();
+        bool found = false;
 
-        if (ssh_conn == nullptr)
+        for (const auto& local_ip : local_ips)
         {
-            std::cerr << "No server IP given and no active SSH session.\n"
-                "Please specify the VNC server IP.\n"
+            if (network::tcp_can_connect(
+                local_ip,
+                default_server_port
+            ))
+            {
+                server_ip = network::ip_to_string(local_ip);
+                found = true;
+                break;
+            }
+        }
+
+        if (!found)
+        {
+            std::cerr << "No server IP given and no VNC server running on\n"
+                "port " << default_server_port << " found in the local USB "
+                "network.\nPlease specify a VNC server IP.\n"
                 "Run “" << name << " --help” for more information.\n";
             return EXIT_FAILURE;
         }
-
-        // Extract the remote client IP from the first field
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        const char* ssh_conn_end = ssh_conn + std::strlen(ssh_conn);
-        const char* remote_ip_end = std::find(ssh_conn, ssh_conn_end, ' ');
-
-        // Remove IPv4-mapped IPv6 prefix
-        const char* remote_ip_start = ssh_conn;
-        const auto *ipv4_prefix = "::ffff:";
-
-        if (std::strncmp(ipv4_prefix, ssh_conn, std::strlen(ipv4_prefix)) == 0)
-        {
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-            remote_ip_start += std::strlen(ipv4_prefix);
-        }
-
-        server_ip = std::string(remote_ip_start, remote_ip_end);
     }
 
     if (oper.size() == 2)

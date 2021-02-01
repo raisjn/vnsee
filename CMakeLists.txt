@@ -53,6 +53,7 @@ add_executable(vnsee
     src/rmioc/screen.cpp
     src/rmioc/touch.cpp
     src/main.cpp
+    src/network.cpp
 )
 
 if(CMAKE_VERSION VERSION_LESS "3.8")
